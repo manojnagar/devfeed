@@ -9,6 +9,7 @@ import { Card, CardBody } from "@/components/ui/card";
 import { Avatar } from "@/components/ui/avatar";
 import { Pill } from "@/components/ui/pill";
 import { EmptyState } from "@/components/ui/empty-state";
+import { buttonClassName } from "@/components/ui/button";
 import Link from "next/link";
 import { togglePublisherFollowAction } from "../actions";
 
@@ -32,10 +33,7 @@ export default async function FollowedPublishersPage() {
           title="You don't follow any publishers"
           description="Visit a publisher page and tap Follow to receive their posts in your digest."
           action={
-            <Link
-              href="/publishers"
-              className="inline-flex items-center justify-center h-10 px-4 rounded-md bg-[rgb(var(--color-accent))] text-[rgb(var(--color-on-accent))] text-sm font-medium"
-            >
+            <Link href="/publishers" className={buttonClassName()}>
               Browse publishers
             </Link>
           }

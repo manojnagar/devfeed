@@ -35,6 +35,25 @@ const SIZE_CLASSES: Record<Size, string> = {
   lg: "h-12 px-6 text-base rounded-md",
 };
 
+const BASE_CLASSES =
+  "inline-flex items-center justify-center gap-2 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
+
+/**
+ * Returns the same Tailwind class string used by the `Button` primitive.
+ * Use this when rendering button-styled content on a non-button element
+ * (e.g. a Next.js `Link`) so the accent / on-accent colors stay in lockstep
+ * with the design tokens and survive future refactors.
+ */
+export function buttonClassName(opts?: {
+  variant?: Variant;
+  size?: Size;
+  className?: string;
+}): string {
+  const variant = opts?.variant ?? "primary";
+  const size = opts?.size ?? "md";
+  return cn(BASE_CLASSES, VARIANT_CLASSES[variant], SIZE_CLASSES[size], opts?.className);
+}
+
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ variant = "primary", size = "md", loading, className, children, type, ...rest }, ref) => {
     return (
@@ -42,12 +61,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         ref={ref}
         type={type ?? "button"}
         disabled={rest.disabled || loading}
-        className={cn(
-          "inline-flex items-center justify-center gap-2 font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
-          VARIANT_CLASSES[variant],
-          SIZE_CLASSES[size],
-          className,
-        )}
+        className={buttonClassName({ variant, size, className })}
         {...rest}
       >
         {loading ? (

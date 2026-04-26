@@ -7,6 +7,7 @@ import { getRepository } from "@/lib/data";
 import { Card, CardBody } from "@/components/ui/card";
 import { Pill } from "@/components/ui/pill";
 import { Avatar } from "@/components/ui/avatar";
+import { buttonClassName } from "@/components/ui/button";
 import { togglePublisherActiveAction } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -22,10 +23,7 @@ export default async function AdminPublishersPage() {
             {publishers.length} in the catalog
           </p>
         </div>
-        <Link
-          href="/admin/publishers/new"
-          className="inline-flex items-center justify-center h-10 px-4 rounded-md bg-[rgb(var(--color-accent))] text-[rgb(var(--color-on-accent))] text-sm font-medium"
-        >
+        <Link href="/admin/publishers/new" className={buttonClassName()}>
           Add publisher
         </Link>
       </header>

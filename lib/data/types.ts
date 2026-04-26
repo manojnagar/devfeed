@@ -51,7 +51,30 @@ export interface PublisherRepository {
 export interface BlogSourceRepository {
   listByPublisher(publisherId: string): Promise<BlogSource[]>;
   listActive(): Promise<BlogSource[]>;
+  /**
+   * List every source (active + hidden) for the admin console.
+   * `isActive` filter is optional so tests/consumers can narrow the result.
+   */
+  list(options?: { isActive?: boolean }): Promise<BlogSource[]>;
+  getById(id: string): Promise<BlogSource | null>;
   upsert(source: BlogSource): Promise<BlogSource>;
+  /**
+   * Update mutable feed config (publisher, URL, kind). The
+   * (`publisherId`, `feedUrl`) pair must remain unique across sources —
+   * the action layer enforces this with a friendly error message before
+   * we hit the DB unique constraint.
+   */
+  update(
+    id: string,
+    patch: Pick<BlogSource, "publisherId" | "feedUrl" | "kind">,
+  ): Promise<BlogSource>;
+  setActive(id: string, isActive: boolean): Promise<void>;
+  /**
+   * Hard-delete the source row. NOTE: in the production schema this
+   * cascades to `posts` (see migration 0002). The admin UI surfaces a
+   * warning before invoking this.
+   */
+  delete(id: string): Promise<void>;
   recordSuccess(sourceId: string, fetchedAt: string): Promise<void>;
   recordFailure(sourceId: string, message: string, occurredAt: string): Promise<void>;
 }

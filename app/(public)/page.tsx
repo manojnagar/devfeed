@@ -29,7 +29,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   });
 
   return (
-    <div className="container mx-auto max-w-6xl px-4 py-8 grid md:grid-cols-[260px_1fr] gap-8">
+    <div className="container mx-auto max-w-7xl px-4 py-8 grid md:grid-cols-[260px_1fr] gap-8">
       <aside className="hidden md:block">
         <FilterSidebar
           publishers={publishers}
@@ -45,7 +45,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
             {page.total} posts {selected.q ? `matching "${selected.q}"` : "across the catalog"}
           </p>
         </header>
-        <FeedList page={page} pagination={pagination} />
+        <FeedList page={page} pagination={pagination} columns={2} />
       </section>
     </div>
   );

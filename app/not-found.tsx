@@ -3,6 +3,7 @@
  */
 
 import Link from "next/link";
+import { buttonClassName } from "@/components/ui/button";
 
 export default function NotFound() {
   return (
@@ -13,10 +14,7 @@ export default function NotFound() {
         <p className="text-[rgb(var(--color-fg-muted))] mb-6">
           The link may be broken, or the page may have been removed.
         </p>
-        <Link
-          href="/"
-          className="inline-flex items-center justify-center h-10 px-4 rounded-md bg-[rgb(var(--color-accent))] text-[rgb(var(--color-on-accent))] text-sm font-medium"
-        >
+        <Link href="/" className={buttonClassName()}>
           Back to the feed
         </Link>
       </div>

@@ -7,6 +7,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { buttonClassName } from "@/components/ui/button";
 
 export default function ErrorPage({
   error,
@@ -30,11 +31,7 @@ export default function ErrorPage({
         <p className="text-[rgb(var(--color-fg-muted))] mb-6">
           We logged the error and are looking into it. Try again in a moment.
         </p>
-        <button
-          type="button"
-          onClick={() => reset()}
-          className="inline-flex items-center justify-center h-10 px-4 rounded-md bg-[rgb(var(--color-accent))] text-[rgb(var(--color-on-accent))] text-sm font-medium"
-        >
+        <button type="button" onClick={() => reset()} className={buttonClassName()}>
           Try again
         </button>
       </div>

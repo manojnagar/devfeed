@@ -8,6 +8,7 @@ import { getRepository } from "@/lib/data";
 import { Card, CardBody, CardFooter } from "@/components/ui/card";
 import { Pill } from "@/components/ui/pill";
 import { EmptyState } from "@/components/ui/empty-state";
+import { buttonClassName } from "@/components/ui/button";
 import { Inbox } from "lucide-react";
 import { absoluteDate } from "@/lib/dates";
 import type { SuggestionStatus } from "@/lib/types";
@@ -39,10 +40,7 @@ export default async function MySuggestionsPage({ searchParams }: Props) {
             {items.length} {items.length === 1 ? "submission" : "submissions"} so far
           </p>
         </div>
-        <Link
-          href="/suggest"
-          className="inline-flex items-center justify-center h-10 px-4 rounded-md bg-[rgb(var(--color-accent))] text-[rgb(var(--color-on-accent))] text-sm font-medium"
-        >
+        <Link href="/suggest" className={buttonClassName()}>
           Suggest another
         </Link>
       </header>

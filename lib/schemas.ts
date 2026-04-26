@@ -14,6 +14,17 @@ export const AccessLabelEnum = z.enum(["free", "paid", "members_only", "mixed"])
 export const SuggestionStatusEnum = z.enum(["pending", "approved", "rejected", "needs_changes"]);
 export const SourceKindEnum = z.enum(["rss", "atom", "scrape"]);
 export const DigestFrequencyEnum = z.enum(["off", "daily", "weekly"]);
+export const UserRoleEnum = z.enum(["user", "admin"]);
+
+export const SetUserRoleSchema = z.object({
+  userId: z.string().min(1).max(200),
+  role: UserRoleEnum,
+});
+
+export const SetUserBannedSchema = z.object({
+  userId: z.string().min(1).max(200),
+  isBanned: z.boolean(),
+});
 
 export const SlugSchema = z
   .string()
@@ -26,6 +37,47 @@ export const UrlSchema = z
   .url()
   .max(2048)
   .refine((u) => /^https?:\/\//i.test(u), "Only http(s) URLs are allowed");
+
+/** Trimmed identifier for any blog source the admin acts on. */
+export const SourceIdSchema = z.object({
+  id: z.string().trim().min(1).max(200),
+});
+
+/**
+ * Update an existing blog source's mutable fields. Audit/health columns
+ * (`last_*`, `consecutive_failures`) are updated by the ingest cron, not
+ * via this admin action.
+ */
+export const UpdateSourceSchema = z.object({
+  id: z.string().trim().min(1).max(200),
+  publisherId: z.string().trim().min(1).max(200),
+  feedUrl: UrlSchema,
+  kind: SourceKindEnum,
+});
+
+export const SetSourceActiveSchema = z.object({
+  id: z.string().trim().min(1).max(200),
+  isActive: z.boolean(),
+});
+
+/**
+ * Inputs for the admin "Test feed" dry-run.
+ *
+ * At least one of `feedUrl` (free-form, used by the pre-save tester on
+ * the Add form) or `sourceId` (used by the per-row tester) must be
+ * provided. When both are submitted the action layer prefers
+ * `sourceId` and resolves the stored URL — that way an admin can't
+ * smuggle a different URL into a known source's audit trail by
+ * crafting a request directly.
+ */
+export const TestFeedSchema = z
+  .object({
+    feedUrl: UrlSchema.optional(),
+    sourceId: z.string().trim().min(1).max(200).optional(),
+  })
+  .refine((v) => Boolean(v.feedUrl) || Boolean(v.sourceId), {
+    message: "Provide a feed URL or pick an existing source.",
+  });
 
 export const PublisherSuggestionInputSchema = z.object({
   type: PublisherTypeEnum,

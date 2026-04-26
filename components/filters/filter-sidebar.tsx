@@ -10,6 +10,7 @@
 import Link from "next/link";
 import { Pill } from "@/components/ui/pill";
 import { Card, CardBody, CardTitle } from "@/components/ui/card";
+import { buttonClassName } from "@/components/ui/button";
 import type { Publisher, Tag } from "@/lib/types";
 
 export interface FilterSidebarProps {
@@ -187,15 +188,12 @@ export function FilterSidebar({
       </Card>
 
       <div className="flex gap-2">
-        <button
-          type="submit"
-          className="flex-1 h-10 rounded-md bg-[rgb(var(--color-accent))] text-[rgb(var(--color-on-accent))] text-sm font-medium hover:bg-[rgb(var(--color-accent-hover))]"
-        >
+        <button type="submit" className={buttonClassName({ className: "flex-1" })}>
           Apply
         </button>
         <Link
           href={basePath}
-          className="flex-1 h-10 rounded-md border border-[rgb(var(--color-line-strong))] text-sm font-medium inline-flex items-center justify-center hover:bg-[rgb(var(--color-surface))]"
+          className={buttonClassName({ variant: "secondary", className: "flex-1" })}
         >
           Reset
         </Link>

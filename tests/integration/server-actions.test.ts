@@ -61,10 +61,24 @@ vi.mock("next/cache", () => ({
   },
 }));
 
+vi.mock("@/lib/ingest/safe-fetch", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/ingest/safe-fetch")>(
+    "@/lib/ingest/safe-fetch",
+  );
+  return {
+    ...actual,
+    safeFetch: vi.fn(),
+  };
+});
+
 import { resetMemoryStore } from "@/lib/data/memory/store";
 import { __resetRepositoryCache, getRepository } from "@/lib/data";
 import { __resetAuthCache } from "@/lib/auth";
 import { __resetEmailCache } from "@/lib/email";
+import { __resetSlidingLimits } from "@/lib/rate-limit";
+import { safeFetch, UnsafeUrlError } from "@/lib/ingest/safe-fetch";
+
+const mockedSafeFetch = vi.mocked(safeFetch);
 
 import {
   toggleBookmarkAction,
@@ -82,7 +96,13 @@ import { submitSuggestionAction } from "@/app/(public)/suggest/actions";
 import {
   addSourceAction,
   decideSuggestionAction,
+  deleteSourceAction,
+  setSourceActiveAction,
+  setUserBannedAction,
+  setUserRoleAction,
+  testFeedAction,
   togglePublisherActiveAction,
+  updateSourceAction,
   upsertPublisherAction,
 } from "@/app/(admin)/admin/actions";
 
@@ -116,6 +136,8 @@ beforeEach(() => {
   __resetRepositoryCache();
   __resetAuthCache();
   __resetEmailCache();
+  __resetSlidingLimits();
+  mockedSafeFetch.mockReset();
 });
 
 describe("Server Action · login", () => {
@@ -374,6 +396,330 @@ describe("Server Action · /admin", () => {
     expect(after.some((s) => s.feedUrl === "https://feeds.example.com/extra.xml")).toBe(true);
   });
 
+  it("updateSourceAction edits feed URL + kind and writes audit", async () => {
+    setSession("demo-admin-user");
+    const repo = getRepository();
+    const target = (await repo.publishers.list({ isActive: true }))[0];
+    const created = await repo.blogSources.upsert({
+      id: "src-update-1",
+      publisherId: target.id,
+      kind: "rss",
+      feedUrl: "https://feeds.example.com/before.xml",
+      scrapeConfig: null,
+      isActive: true,
+      lastFetchedAt: null,
+      lastErrorAt: null,
+      lastErrorMessage: null,
+      consecutiveFailures: 0,
+      createdAt: new Date().toISOString(),
+    });
+
+    const fd = new FormData();
+    fd.set("id", created.id);
+    fd.set("publisherId", target.id);
+    fd.set("feedUrl", "https://feeds.example.com/after.xml");
+    fd.set("kind", "atom");
+    const result = await updateSourceAction(null, fd);
+
+    expect(result.ok).toBe(true);
+    const after = await repo.blogSources.getById(created.id);
+    expect(after?.feedUrl).toBe("https://feeds.example.com/after.xml");
+    expect(after?.kind).toBe("atom");
+
+    const audit = await repo.audit.list(5);
+    expect(audit[0].action).toBe("source.update");
+    expect(audit[0].targetId).toBe(created.id);
+  });
+
+  it("updateSourceAction rejects non-admin callers", async () => {
+    setSession("demo-user");
+    const fd = new FormData();
+    fd.set("id", "src-anything");
+    fd.set("publisherId", "pub-anything");
+    fd.set("feedUrl", "https://feeds.example.com/x.xml");
+    fd.set("kind", "rss");
+    await expect(updateSourceAction(null, fd)).rejects.toThrow();
+  });
+
+  it("updateSourceAction returns a friendly error for invalid URL", async () => {
+    setSession("demo-admin-user");
+    const fd = new FormData();
+    fd.set("id", "src-1");
+    fd.set("publisherId", "pub-anything");
+    fd.set("feedUrl", "not-a-url");
+    fd.set("kind", "rss");
+    const result = await updateSourceAction(null, fd);
+    expect(result.ok).toBe(false);
+    expect(result.message).toBeTruthy();
+  });
+
+  it("updateSourceAction surfaces DUPLICATE_FEED_URL when (publisher, url) collides", async () => {
+    setSession("demo-admin-user");
+    const repo = getRepository();
+    const target = (await repo.publishers.list({ isActive: true }))[0];
+    await repo.blogSources.upsert({
+      id: "src-dup-existing",
+      publisherId: target.id,
+      kind: "rss",
+      feedUrl: "https://feeds.example.com/dup.xml",
+      scrapeConfig: null,
+      isActive: true,
+      lastFetchedAt: null,
+      lastErrorAt: null,
+      lastErrorMessage: null,
+      consecutiveFailures: 0,
+      createdAt: new Date().toISOString(),
+    });
+    const editing = await repo.blogSources.upsert({
+      id: "src-dup-editing",
+      publisherId: target.id,
+      kind: "rss",
+      feedUrl: "https://feeds.example.com/other.xml",
+      scrapeConfig: null,
+      isActive: true,
+      lastFetchedAt: null,
+      lastErrorAt: null,
+      lastErrorMessage: null,
+      consecutiveFailures: 0,
+      createdAt: new Date().toISOString(),
+    });
+
+    const fd = new FormData();
+    fd.set("id", editing.id);
+    fd.set("publisherId", target.id);
+    fd.set("feedUrl", "https://feeds.example.com/dup.xml");
+    fd.set("kind", "rss");
+    const result = await updateSourceAction(null, fd);
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/already has this feed URL/i);
+    // Original row stayed untouched.
+    const stillExisting = await repo.blogSources.getById(editing.id);
+    expect(stillExisting?.feedUrl).toBe("https://feeds.example.com/other.xml");
+  });
+
+  it("setSourceActiveAction toggles isActive and writes audit", async () => {
+    setSession("demo-admin-user");
+    const repo = getRepository();
+    const target = (await repo.publishers.list({ isActive: true }))[0];
+    const src = await repo.blogSources.upsert({
+      id: "src-toggle-1",
+      publisherId: target.id,
+      kind: "rss",
+      feedUrl: "https://feeds.example.com/toggle.xml",
+      scrapeConfig: null,
+      isActive: true,
+      lastFetchedAt: null,
+      lastErrorAt: null,
+      lastErrorMessage: null,
+      consecutiveFailures: 0,
+      createdAt: new Date().toISOString(),
+    });
+
+    const hide = new FormData();
+    hide.set("id", src.id);
+    hide.set("isActive", "false");
+    await setSourceActiveAction(hide);
+
+    const hidden = await repo.blogSources.getById(src.id);
+    expect(hidden?.isActive).toBe(false);
+    const audit1 = await repo.audit.list(5);
+    expect(audit1[0].action).toBe("source.deactivate");
+
+    const show = new FormData();
+    show.set("id", src.id);
+    show.set("isActive", "true");
+    await setSourceActiveAction(show);
+    const reactivated = await repo.blogSources.getById(src.id);
+    expect(reactivated?.isActive).toBe(true);
+    const audit2 = await repo.audit.list(5);
+    expect(audit2[0].action).toBe("source.activate");
+  });
+
+  it("deleteSourceAction requires the typed DELETE confirm token", async () => {
+    setSession("demo-admin-user");
+    const fd = new FormData();
+    fd.set("id", "anything");
+    fd.set("confirm", "delete"); // wrong case
+    const result = await deleteSourceAction(null, fd);
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/type DELETE/i);
+  });
+
+  it("deleteSourceAction removes the source and cascades posts (in-memory mirrors prod cascade)", async () => {
+    setSession("demo-admin-user");
+    const repo = getRepository();
+    const target = (await repo.publishers.list({ isActive: true }))[0];
+    const src = await repo.blogSources.upsert({
+      id: "src-delete-1",
+      publisherId: target.id,
+      kind: "rss",
+      feedUrl: "https://feeds.example.com/gone.xml",
+      scrapeConfig: null,
+      isActive: true,
+      lastFetchedAt: null,
+      lastErrorAt: null,
+      lastErrorMessage: null,
+      consecutiveFailures: 0,
+      createdAt: new Date().toISOString(),
+    });
+    await repo.posts.insertMany([
+      {
+        id: "post-cascade-1",
+        publisherId: target.id,
+        sourceId: src.id,
+        title: "Cascading goodbye",
+        summary: "this should disappear",
+        url: "https://example.com/cascade-1",
+        canonicalUrl: "https://example.com/cascade-1",
+        authorName: null,
+        publishedAt: new Date().toISOString(),
+        readingTimeMin: 1,
+        accessLabel: "free",
+        paywallProvider: "unknown",
+        thumbnailUrl: null,
+        rawContentHash: "h-cascade-1",
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+
+    const fd = new FormData();
+    fd.set("id", src.id);
+    fd.set("confirm", "DELETE");
+    const result = await deleteSourceAction(null, fd);
+
+    expect(result.ok).toBe(true);
+    expect(await repo.blogSources.getById(src.id)).toBeNull();
+    const remaining = await repo.posts.getByCanonicalUrl("https://example.com/cascade-1");
+    expect(remaining).toBeNull();
+
+    const audit = await repo.audit.list(5);
+    expect(audit[0].action).toBe("source.delete");
+    expect(audit[0].targetId).toBe(src.id);
+  });
+
+  it("deleteSourceAction rejects non-admin callers", async () => {
+    setSession("demo-user");
+    const fd = new FormData();
+    fd.set("id", "src-x");
+    fd.set("confirm", "DELETE");
+    await expect(deleteSourceAction(null, fd)).rejects.toThrow();
+  });
+
+  it("testFeedAction returns sample items for a healthy URL and audits source.test", async () => {
+    setSession("demo-admin-user");
+    mockedSafeFetch.mockResolvedValueOnce({
+      status: 200,
+      body: `<?xml version="1.0"?><rss><channel><item><title>Hello</title><link>https://example.com/a</link><pubDate>Mon, 01 Apr 2025 00:00:00 GMT</pubDate></item></channel></rss>`,
+      headers: new Headers({ "content-type": "application/rss+xml" }),
+      finalUrl: "https://example.com/feed.xml",
+    });
+
+    const fd = new FormData();
+    fd.set("feedUrl", "https://example.com/feed.xml");
+    const result = await testFeedAction(null, fd);
+
+    expect(result.ok).toBe(true);
+    expect(result.detail?.itemCount).toBe(1);
+    expect(result.detail?.sampleItems[0].title).toBe("Hello");
+
+    const repo = getRepository();
+    const audit = await repo.audit.list(5);
+    expect(audit[0].action).toBe("source.test");
+    expect(audit[0].targetId).toBe("url:https://example.com/feed.xml");
+  });
+
+  it("testFeedAction resolves sourceId to the stored URL (admin can't smuggle a different URL)", async () => {
+    setSession("demo-admin-user");
+    const repo = getRepository();
+    const target = (await repo.publishers.list({ isActive: true }))[0];
+    const src = await repo.blogSources.upsert({
+      id: "src-test-1",
+      publisherId: target.id,
+      kind: "rss",
+      feedUrl: "https://feeds.example.com/known.xml",
+      scrapeConfig: null,
+      isActive: true,
+      lastFetchedAt: null,
+      lastErrorAt: null,
+      lastErrorMessage: null,
+      consecutiveFailures: 0,
+      createdAt: new Date().toISOString(),
+    });
+    mockedSafeFetch.mockResolvedValueOnce({
+      status: 200,
+      body: `<rss><channel><item><title>Stored</title><link>https://feeds.example.com/post</link></item></channel></rss>`,
+      headers: new Headers({ "content-type": "application/rss+xml" }),
+      finalUrl: "https://feeds.example.com/known.xml",
+    });
+
+    const fd = new FormData();
+    fd.set("sourceId", src.id);
+    fd.set("feedUrl", "https://attacker.example/evil.xml"); // ignored
+    const result = await testFeedAction(null, fd);
+
+    expect(result.ok).toBe(true);
+    expect(mockedSafeFetch).toHaveBeenCalledWith("https://feeds.example.com/known.xml");
+    const audit = await repo.audit.list(5);
+    expect(audit[0].action).toBe("source.test");
+    expect(audit[0].targetId).toBe(src.id);
+  });
+
+  it("testFeedAction reports SSRF blocks without throwing", async () => {
+    setSession("demo-admin-user");
+    mockedSafeFetch.mockRejectedValueOnce(
+      new UnsafeUrlError("Private host blocked: 127.0.0.1", "host"),
+    );
+
+    const fd = new FormData();
+    fd.set("feedUrl", "http://127.0.0.1/feed");
+    const result = await testFeedAction(null, fd);
+
+    expect(result.ok).toBe(false);
+    expect(result.detail?.error).toMatch(/SSRF/);
+  });
+
+  it("testFeedAction returns a friendly error for invalid input", async () => {
+    setSession("demo-admin-user");
+    const fd = new FormData();
+    fd.set("feedUrl", "not-a-url");
+    const result = await testFeedAction(null, fd);
+    expect(result.ok).toBe(false);
+    expect(result.message).toBeTruthy();
+    expect(mockedSafeFetch).not.toHaveBeenCalled();
+  });
+
+  it("testFeedAction rejects non-admin callers", async () => {
+    setSession("demo-user");
+    const fd = new FormData();
+    fd.set("feedUrl", "https://example.com/feed.xml");
+    await expect(testFeedAction(null, fd)).rejects.toThrow();
+    expect(mockedSafeFetch).not.toHaveBeenCalled();
+  });
+
+  it("testFeedAction enforces the per-admin sliding rate limit", async () => {
+    setSession("demo-admin-user");
+    mockedSafeFetch.mockResolvedValue({
+      status: 200,
+      body: `<rss><channel><item><title>x</title><link>https://example.com/x</link></item></channel></rss>`,
+      headers: new Headers({ "content-type": "application/rss+xml" }),
+      finalUrl: "https://example.com/feed.xml",
+    });
+
+    // Cap is 30/minute. Hit it.
+    for (let i = 0; i < 30; i += 1) {
+      const fd = new FormData();
+      fd.set("feedUrl", "https://example.com/feed.xml");
+      const r = await testFeedAction(null, fd);
+      expect(r.ok).toBe(true);
+    }
+
+    const fd = new FormData();
+    fd.set("feedUrl", "https://example.com/feed.xml");
+    const blocked = await testFeedAction(null, fd);
+    expect(blocked.ok).toBe(false);
+    expect(blocked.message).toMatch(/Too many tests/i);
+  });
+
   it("decideSuggestionAction approve promotes the suggestion to a publisher", async () => {
     setSession("demo-admin-user");
     const repo = getRepository();
@@ -441,5 +787,177 @@ describe("Server Action · /admin", () => {
     expect(list.find((p) => p.name === "Reject Me")).toBeUndefined();
     const decided = await repo.suggestions.getById(suggestion.id);
     expect(decided?.status).toBe("rejected");
+  });
+});
+
+describe("Server Action · /admin user role management", () => {
+  /**
+   * Seed an extra plain-user profile we can mutate without affecting the
+   * built-in `demo-user` who is referenced by other tests.
+   */
+  async function seedExtraUser(
+    overrides: Partial<{ role: "user" | "admin"; isBanned: boolean }> = {},
+  ): Promise<string> {
+    const repo = getRepository();
+    const userId = `target-${Math.random().toString(36).slice(2, 8)}`;
+    await repo.profiles.upsert({
+      userId,
+      email: `${userId}@devfeed.local`,
+      displayName: "Target User",
+      role: overrides.role ?? "user",
+      isBanned: overrides.isBanned ?? false,
+      createdAt: new Date().toISOString(),
+    });
+    return userId;
+  }
+
+  it("non-admin caller hits 404", async () => {
+    setSession("demo-user");
+    const fd = new FormData();
+    fd.set("userId", "demo-admin-user");
+    fd.set("role", "user");
+    await expect(setUserRoleAction(null, fd)).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it("setUserRoleAction promotes a user → admin and writes audit", async () => {
+    setSession("demo-admin-user");
+    const repo = getRepository();
+    const targetId = await seedExtraUser();
+
+    const fd = new FormData();
+    fd.set("userId", targetId);
+    fd.set("role", "admin");
+
+    const result = await setUserRoleAction(null, fd);
+    expect(result.ok).toBe(true);
+
+    const updated = await repo.profiles.getById(targetId);
+    expect(updated?.role).toBe("admin");
+
+    const audit = await repo.audit.list(5);
+    const entry = audit.find((a) => a.action === "user.role.update" && a.targetId === targetId);
+    expect(entry).toBeTruthy();
+    expect(entry?.payload).toMatchObject({ from: "user", to: "admin" });
+    expect(revalidateCalls).toContain("/admin/users");
+  });
+
+  it("setUserRoleAction demotes admin → user when another admin exists", async () => {
+    setSession("demo-admin-user");
+    const repo = getRepository();
+    const otherAdminId = await seedExtraUser({ role: "admin" });
+
+    const fd = new FormData();
+    fd.set("userId", otherAdminId);
+    fd.set("role", "user");
+
+    const result = await setUserRoleAction(null, fd);
+    expect(result.ok).toBe(true);
+
+    const updated = await repo.profiles.getById(otherAdminId);
+    expect(updated?.role).toBe("user");
+  });
+
+  it("setUserRoleAction blocks self-mutation", async () => {
+    setSession("demo-admin-user");
+    const repo = getRepository();
+
+    const fd = new FormData();
+    fd.set("userId", "demo-admin-user");
+    fd.set("role", "user");
+
+    const result = await setUserRoleAction(null, fd);
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/your own role/i);
+
+    const me = await repo.profiles.getById("demo-admin-user");
+    expect(me?.role).toBe("admin");
+  });
+
+  /**
+   * Note: the `LAST_ADMIN_GUARD` inside `setUserRoleAction` /
+   * `setUserBannedAction` is defense-in-depth against a race condition
+   * (caller demoted between `requireAdmin` and the guard query). It is
+   * unreachable through normal serial flow because `requireAdmin`
+   * always re-reads the caller's role from the DB at the start of the
+   * action — so any caller that gets through is already an active
+   * admin and counts toward `otherActiveAdmins`. We rely on code
+   * review for that branch rather than racy timing in unit tests.
+   */
+
+  it("setUserRoleAction surfaces a friendly error on invalid role enum", async () => {
+    setSession("demo-admin-user");
+    const targetId = await seedExtraUser();
+
+    const fd = new FormData();
+    fd.set("userId", targetId);
+    fd.set("role", "superuser");
+
+    const result = await setUserRoleAction(null, fd);
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/invalid role/i);
+  });
+
+  it("setUserBannedAction bans a regular user and writes audit", async () => {
+    setSession("demo-admin-user");
+    const repo = getRepository();
+    const targetId = await seedExtraUser();
+
+    const fd = new FormData();
+    fd.set("userId", targetId);
+    fd.set("isBanned", "true");
+
+    const result = await setUserBannedAction(null, fd);
+    expect(result.ok).toBe(true);
+
+    const updated = await repo.profiles.getById(targetId);
+    expect(updated?.isBanned).toBe(true);
+
+    const audit = await repo.audit.list(5);
+    const entry = audit.find((a) => a.action === "user.ban.update" && a.targetId === targetId);
+    expect(entry).toBeTruthy();
+    expect(entry?.payload).toMatchObject({ from: false, to: true });
+  });
+
+  it("setUserBannedAction blocks self-ban", async () => {
+    setSession("demo-admin-user");
+    const fd = new FormData();
+    fd.set("userId", "demo-admin-user");
+    fd.set("isBanned", "true");
+
+    const result = await setUserBannedAction(null, fd);
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/your own role|ban status/i);
+  });
+
+  it("setUserBannedAction allows admin → ban another admin when other admins remain", async () => {
+    setSession("demo-admin-user");
+    const repo = getRepository();
+    const otherAdminId = await seedExtraUser({ role: "admin" });
+
+    const fd = new FormData();
+    fd.set("userId", otherAdminId);
+    fd.set("isBanned", "true");
+
+    const result = await setUserBannedAction(null, fd);
+    expect(result.ok).toBe(true);
+
+    const updated = await repo.profiles.getById(otherAdminId);
+    expect(updated?.isBanned).toBe(true);
+  });
+
+  it("setUserRoleAction is a no-op when target already has the requested role", async () => {
+    setSession("demo-admin-user");
+    const targetId = await seedExtraUser();
+
+    const fd = new FormData();
+    fd.set("userId", targetId);
+    fd.set("role", "user");
+
+    const result = await setUserRoleAction(null, fd);
+    expect(result.ok).toBe(true);
+    expect(result.message).toMatch(/already user/i);
+
+    const audit = await getRepository().audit.list(5);
+    expect(audit.find((a) => a.targetId === targetId && a.action === "user.role.update")).toBeUndefined();
   });
 });
