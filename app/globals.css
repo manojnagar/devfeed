@@ -1,0 +1,157 @@
+/**
+ * Global stylesheet.
+ *
+ * Hosts the Tailwind v4 entrypoint plus the DevFeed semantic design tokens
+ * declared via `@theme`. Light theme is `:root`; dark theme is applied via
+ * `[data-theme="dark"]` (set by `next-themes` on the <html> tag).
+ *
+ * Tokens are kept semantic on purpose — components reference roles
+ * (`bg-surface`, `text-fg`, `border-line`) rather than raw colors so a
+ * later rebrand only touches this file.
+ */
+
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo,
+    Consolas, monospace;
+
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-pill: 9999px;
+
+  --shadow-sm: none;
+  --shadow-md: none;
+}
+
+:root,
+:root[data-theme="light"] {
+  /* surfaces */
+  --color-bg: 255 255 255;
+  --color-surface: 250 250 250;
+  --color-surface-elevated: 255 255 255;
+  --color-line: 226 226 230;
+  --color-line-strong: 209 209 215;
+
+  /* text */
+  --color-fg: 17 17 19;
+  --color-fg-muted: 85 85 92;
+  --color-fg-subtle: 130 130 140;
+  --color-on-accent: 255 255 255;
+
+  /* accent + semantic */
+  --color-accent: 35 100 235;
+  --color-accent-hover: 25 80 200;
+  --color-success: 22 130 90;
+  --color-warning: 168 110 0;
+  --color-danger: 198 50 50;
+  --color-info: 20 110 200;
+
+  /* publisher type tints */
+  --color-type-company: 35 100 235;
+  --color-type-person: 130 70 200;
+
+  /* access label tints */
+  --color-access-free: 22 130 90;
+  --color-access-paid: 168 110 0;
+  --color-access-members: 100 90 200;
+}
+
+:root[data-theme="dark"] {
+  --color-bg: 14 14 16;
+  --color-surface: 22 22 26;
+  --color-surface-elevated: 28 28 32;
+  --color-line: 42 42 48;
+  --color-line-strong: 60 60 68;
+
+  --color-fg: 240 240 244;
+  --color-fg-muted: 168 168 176;
+  --color-fg-subtle: 120 120 130;
+  --color-on-accent: 255 255 255;
+
+  --color-accent: 88 142 255;
+  --color-accent-hover: 110 160 255;
+  --color-success: 70 200 140;
+  --color-warning: 230 170 70;
+  --color-danger: 240 110 110;
+  --color-info: 80 170 240;
+
+  --color-type-company: 88 142 255;
+  --color-type-person: 180 130 240;
+
+  --color-access-free: 70 200 140;
+  --color-access-paid: 230 170 70;
+  --color-access-members: 160 150 240;
+}
+
+@theme inline {
+  --color-bg: rgb(var(--color-bg) / <alpha-value>);
+  --color-surface: rgb(var(--color-surface) / <alpha-value>);
+  --color-surface-elevated: rgb(var(--color-surface-elevated) / <alpha-value>);
+  --color-line: rgb(var(--color-line) / <alpha-value>);
+  --color-line-strong: rgb(var(--color-line-strong) / <alpha-value>);
+  --color-fg: rgb(var(--color-fg) / <alpha-value>);
+  --color-fg-muted: rgb(var(--color-fg-muted) / <alpha-value>);
+  --color-fg-subtle: rgb(var(--color-fg-subtle) / <alpha-value>);
+  --color-on-accent: rgb(var(--color-on-accent) / <alpha-value>);
+  --color-accent: rgb(var(--color-accent) / <alpha-value>);
+  --color-accent-hover: rgb(var(--color-accent-hover) / <alpha-value>);
+  --color-success: rgb(var(--color-success) / <alpha-value>);
+  --color-warning: rgb(var(--color-warning) / <alpha-value>);
+  --color-danger: rgb(var(--color-danger) / <alpha-value>);
+  --color-info: rgb(var(--color-info) / <alpha-value>);
+  --color-type-company: rgb(var(--color-type-company) / <alpha-value>);
+  --color-type-person: rgb(var(--color-type-person) / <alpha-value>);
+  --color-access-free: rgb(var(--color-access-free) / <alpha-value>);
+  --color-access-paid: rgb(var(--color-access-paid) / <alpha-value>);
+  --color-access-members: rgb(var(--color-access-members) / <alpha-value>);
+}
+
+/*
+ * Base element styles live inside `@layer base` so any utility class
+ * (e.g. `text-[rgb(var(--color-on-accent))]`) can override them. In
+ * Tailwind v4 unlayered rules always win over layered utilities — that
+ * regression caused the "Browse publishers" CTA to render with the
+ * inherited body foreground color instead of the explicit on-accent
+ * color set on the link.
+ */
+@layer base {
+  * {
+    border-color: rgb(var(--color-line));
+  }
+
+  html,
+  body {
+    background-color: rgb(var(--color-bg));
+    color: rgb(var(--color-fg));
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  a {
+    color: inherit;
+  }
+
+  :focus-visible {
+    outline: 2px solid rgb(var(--color-accent));
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+}
+
+/* Hide visually but keep for screen readers */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
