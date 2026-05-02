@@ -277,6 +277,12 @@ export const supabaseRepository: Repository = {
     async trendingTop() {
       return todo("posts.trendingTop");
     },
+    async setBody() {
+      return todo("posts.setBody");
+    },
+    async setBodyFailed() {
+      return todo("posts.setBodyFailed");
+    },
   },
   tags: {
     async list() {

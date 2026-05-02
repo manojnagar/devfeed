@@ -143,6 +143,129 @@
   }
 }
 
+/*
+ * Reader-mode typography for `/posts/[postId]`. Lives under
+ * `@layer components` so every individual element rule is overridable
+ * by ad-hoc utility classes if a future template needs to deviate.
+ *
+ * Why we don't pull in `@tailwindcss/typography`: the body content is
+ * sanitized to a tight allow-list (see lib/ingest/sanitize-body.ts) so
+ * the surface area is small and we can express it in <80 lines of
+ * direct rules instead of adopting a 50KB plugin.
+ */
+@layer components {
+  .article-body {
+    font-size: 1rem;
+    line-height: 1.7;
+    color: rgb(var(--color-fg));
+  }
+
+  .article-body > * + * {
+    margin-top: 1em;
+  }
+
+  .article-body h2,
+  .article-body h3,
+  .article-body h4 {
+    color: rgb(var(--color-fg));
+    font-weight: 600;
+    line-height: 1.3;
+    margin-top: 1.6em;
+  }
+
+  .article-body h2 {
+    font-size: 1.4rem;
+  }
+  .article-body h3 {
+    font-size: 1.2rem;
+  }
+  .article-body h4 {
+    font-size: 1.05rem;
+  }
+
+  .article-body a {
+    color: rgb(var(--color-accent));
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .article-body a:hover {
+    color: rgb(var(--color-accent-hover));
+  }
+
+  .article-body ul,
+  .article-body ol {
+    padding-left: 1.5em;
+  }
+  .article-body ul {
+    list-style: disc;
+  }
+  .article-body ol {
+    list-style: decimal;
+  }
+  .article-body li + li {
+    margin-top: 0.4em;
+  }
+
+  .article-body blockquote {
+    border-left: 3px solid rgb(var(--color-line-strong));
+    padding-left: 1em;
+    color: rgb(var(--color-fg-muted));
+    font-style: italic;
+  }
+
+  .article-body code {
+    font-family: var(--font-mono);
+    font-size: 0.92em;
+    background: rgb(var(--color-surface));
+    padding: 0.1em 0.35em;
+    border-radius: var(--radius-sm);
+  }
+  .article-body pre {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+    background: rgb(var(--color-surface));
+    border: 1px solid rgb(var(--color-line));
+    border-radius: var(--radius-md);
+    padding: 0.85em 1em;
+    overflow-x: auto;
+    line-height: 1.5;
+  }
+  .article-body pre code {
+    background: transparent;
+    padding: 0;
+    border-radius: 0;
+  }
+
+  .article-body img {
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--radius-md);
+  }
+  .article-body figure {
+    margin: 1.4em 0;
+  }
+  .article-body figcaption {
+    color: rgb(var(--color-fg-muted));
+    font-size: 0.9em;
+    text-align: center;
+    margin-top: 0.5em;
+  }
+
+  .article-body table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .article-body th,
+  .article-body td {
+    border: 1px solid rgb(var(--color-line));
+    padding: 0.5em 0.75em;
+    text-align: left;
+  }
+  .article-body th {
+    background: rgb(var(--color-surface));
+  }
+}
+
 /* Hide visually but keep for screen readers */
 .sr-only {
   position: absolute;

@@ -16,6 +16,7 @@ import { POST_TEMPLATES } from "./post-templates";
 import { TAG_SEEDS } from "./tags";
 import { shortHash, slugify } from "../../ids";
 import { canonicalizeUrl } from "../../url";
+import { sanitizePostBody } from "../../ingest/sanitize-body";
 import type {
   AccessLabel,
   BlogSource,
@@ -139,7 +140,17 @@ function buildPostsFor(
     const titleSuffix = i === 0 ? "" : ` (part ${i + 1})`;
     const title = `${template.title}${titleSuffix}`;
     const slugPart = `${publisher.slug}-${slugify(title)}-${i}`;
-    const url = `${publisher.websiteUrl.replace(/\/$/, "")}/posts/${slugify(title)}-${i}`;
+    // Point the public canonical URL at the publisher's real blog
+    // homepage with a unique non-tracking query param. In production
+    // this is overwritten by whatever the RSS feed advertises; in
+    // dev it means "Read full article" actually opens a real page
+    // instead of a synthetic 404'd slug. The query param keeps the
+    // canonical URL unique so the dedup index still works (it isn't
+    // matched by `canonicalizeUrl`'s tracking-pattern allow-list).
+    const baseUrl = publisher.websiteUrl.replace(/\/$/, "");
+    const url = `${baseUrl}?devseed=${slugify(title)}-${i}`;
+    const sampleBody = template.body ? sanitizePostBody(template.body) : "";
+    const hasBody = sampleBody.length > 0;
     const post: Post = {
       id: deterministicId("post", slugPart),
       publisherId: publisher.id,
@@ -156,6 +167,11 @@ function buildPostsFor(
         template.accessLabel === "paid" ? publisher.defaultPaywallProvider : "unknown",
       thumbnailUrl: null,
       rawContentHash: shortHash(slugPart),
+      bodyHtml: hasBody ? sampleBody : null,
+      bodySource: hasBody ? "feed" : null,
+      bodyExtractedAt: hasBody ? publishedAt : null,
+      bodyFailedAt: null,
+      bodyFailedReason: null,
       createdAt: publishedAt,
     };
     posts.push(post);

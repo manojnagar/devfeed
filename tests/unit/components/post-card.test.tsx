@@ -22,6 +22,11 @@ const post: PostWithRelations = {
   paywallProvider: "unknown",
   thumbnailUrl: null,
   rawContentHash: null,
+  bodyHtml: null,
+  bodySource: null,
+  bodyExtractedAt: null,
+  bodyFailedAt: null,
+  bodyFailedReason: null,
   createdAt: "2026-04-25T00:00:00Z",
   publisher: {
     id: "pub-1",

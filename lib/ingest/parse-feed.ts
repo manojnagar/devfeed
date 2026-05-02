@@ -14,7 +14,15 @@ export interface ParsedFeedItem {
   title: string;
   link: string;
   guid: string | null;
+  /** Plain-text summary used by cards and search. */
   summary: string | null;
+  /**
+   * Raw HTML body when the feed ships one in `<content:encoded>` (RSS)
+   * or `<content>` (Atom). NOT sanitized — callers must run it through
+   * the same allow-list as on-demand extraction before persisting.
+   * `null` when the feed only provides a summary.
+   */
+  rawBody: string | null;
   author: string | null;
   publishedAt: string;
 }
@@ -42,9 +50,27 @@ function decodeHtml(value: string): string {
     .trim();
 }
 
+/** Strip CDATA wrappers but keep HTML tags intact for body cache. */
+function unwrapCdata(value: string): string {
+  return value.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1").trim();
+}
+
 function getTag(block: string, tag: string): string | null {
   const m = block.match(TAG(tag));
   return m ? decodeHtml(m[1]) : null;
+}
+
+/**
+ * Like `getTag`, but preserves inner HTML — used for `<content:encoded>`
+ * / atom `<content>` so we can render the full article body. Returns
+ * `null` when the tag is absent OR resolves to an empty string after
+ * trimming whitespace.
+ */
+function getRawTag(block: string, tag: string): string | null {
+  const m = block.match(TAG(tag));
+  if (!m) return null;
+  const unwrapped = unwrapCdata(m[1]);
+  return unwrapped.length > 0 ? unwrapped : null;
 }
 
 function getAtomLink(block: string): string | null {
@@ -66,6 +92,15 @@ function parseItems(blocks: string[], isAtom: boolean): ParsedFeedItem[] {
     if (!title || !link) continue;
     const summary =
       getTag(block, "description") ?? getTag(block, "summary") ?? getTag(block, "content");
+    // Full HTML body — RSS publishers expose this via the
+    // `content:encoded` extension; Atom uses plain `<content>`. We
+    // prefer `content:encoded` over `content` because the encoded
+    // form is conventionally the full body where the plain tag is
+    // sometimes a teaser. Never fall back to `description` — that's
+    // the summary slot and is explicitly text-only on the cards.
+    const rawBody = isAtom
+      ? getRawTag(block, "content")
+      : getRawTag(block, "content:encoded") ?? getRawTag(block, "content");
     const author =
       getTag(block, "author") ??
       getTag(block, "dc:creator") ??
@@ -78,6 +113,7 @@ function parseItems(blocks: string[], isAtom: boolean): ParsedFeedItem[] {
       link,
       guid,
       summary,
+      rawBody,
       author,
       publishedAt: parseDate(published),
     });

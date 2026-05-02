@@ -79,6 +79,17 @@ export interface BlogSourceRepository {
   recordFailure(sourceId: string, message: string, occurredAt: string): Promise<void>;
 }
 
+export interface SetPostBodyInput {
+  bodyHtml: string;
+  bodySource: "feed" | "extracted";
+  bodyExtractedAt: string;
+}
+
+export interface SetPostBodyFailedInput {
+  reason: string;
+  failedAt: string;
+}
+
 export interface PostRepository {
   list(options: ListPostsOptions): Promise<Page<PostWithRelations>>;
   getById(id: string): Promise<PostWithRelations | null>;
@@ -86,6 +97,17 @@ export interface PostRepository {
   insertMany(posts: Post[]): Promise<number>;
   attachTags(postId: string, tagIds: string[]): Promise<void>;
   trendingTop(limit: number, days: number): Promise<PostWithRelations[]>;
+  /**
+   * Cache a sanitized HTML body on the post row. Both feed-supplied and
+   * extracted bodies must be sanitized before this is called — adapters
+   * trust the input.
+   */
+  setBody(postId: string, input: SetPostBodyInput): Promise<void>;
+  /**
+   * Record a failed extraction so the page can short-circuit retries
+   * inside the cool-off window (see migration 0006).
+   */
+  setBodyFailed(postId: string, input: SetPostBodyFailedInput): Promise<void>;
 }
 
 export interface TagRepository {

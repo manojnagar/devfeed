@@ -24,6 +24,7 @@ import type {
   Tag,
 } from "../../types";
 import { buildSeed } from "../seed/build";
+import { scheduleLiveIngest } from "./live-ingest";
 
 export interface MemoryStore {
   publishers: Map<string, Publisher>;
@@ -67,10 +68,17 @@ function buildStore(): MemoryStore {
  * Get (and lazily build) the singleton store.
  *
  * Called by the in-memory repository on every operation. Cheap after
- * the first call.
+ * the first call. On the very first call we kick off a dev-only
+ * background ingest pass against the seeded RSS feeds so the home
+ * page can graduate from synthetic seed data to real article URLs
+ * (see `live-ingest.ts`). The ingest is async and never blocks here;
+ * if it fails or is disabled, callers still get the synthetic seed.
  */
 export function getMemoryStore(): MemoryStore {
-  if (!cached) cached = buildStore();
+  if (!cached) {
+    cached = buildStore();
+    void scheduleLiveIngest(cached);
+  }
   return cached;
 }
 

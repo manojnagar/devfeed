@@ -34,6 +34,28 @@ const ATOM_FIXTURE = `<?xml version="1.0" encoding="utf-8"?>
   </entry>
 </feed>`;
 
+const RSS_WITH_BODY = `<?xml version="1.0"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+  <channel>
+    <item>
+      <title>Body fixture</title>
+      <link>https://example.com/body</link>
+      <description>Plain summary</description>
+      <content:encoded><![CDATA[<p>The <strong>full</strong> body here.</p><p>Second paragraph.</p>]]></content:encoded>
+    </item>
+  </channel>
+</rss>`;
+
+const ATOM_WITH_BODY = `<?xml version="1.0"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <title>Atom body</title>
+    <link href="https://example.com/atom-body" />
+    <updated>2026-04-25T00:00:00Z</updated>
+    <content type="html"><![CDATA[<p>Atom rendered body.</p>]]></content>
+  </entry>
+</feed>`;
+
 describe("parseFeed", () => {
   it("parses RSS items", () => {
     const out = parseFeed(RSS_FIXTURE);
@@ -53,5 +75,24 @@ describe("parseFeed", () => {
   it("returns an empty list for empty input", () => {
     const out = parseFeed("<rss><channel></channel></rss>");
     expect(out.items).toEqual([]);
+  });
+
+  it("captures the raw HTML body from RSS content:encoded when present", () => {
+    const out = parseFeed(RSS_WITH_BODY);
+    expect(out.items[0].rawBody).toContain("<strong>full</strong>");
+    expect(out.items[0].rawBody).toContain("Second paragraph");
+    // Plain-text summary stays HTML-stripped for the cards.
+    expect(out.items[0].summary).toBe("Plain summary");
+  });
+
+  it("captures the raw HTML body from Atom <content>", () => {
+    const out = parseFeed(ATOM_WITH_BODY);
+    expect(out.items[0].rawBody).toContain("Atom rendered body");
+  });
+
+  it("returns rawBody=null when neither content:encoded nor content is present", () => {
+    const out = parseFeed(RSS_FIXTURE);
+    expect(out.items[0].rawBody).toBeNull();
+    expect(out.items[1].rawBody).toBeNull();
   });
 });

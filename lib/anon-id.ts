@@ -34,3 +34,14 @@ export async function getOrSetAnonId(): Promise<string> {
 }
 
 export const ANON_COOKIE_NAME = COOKIE_NAME;
+
+/**
+ * Read the anon id from cookies WITHOUT setting one. Use this from
+ * Server Components — they can read but not write the cookie jar in
+ * Next 15. Returns `null` when the cookie is absent; callers should
+ * fall back to a request-scoped signal (forwarded-for IP).
+ */
+export async function getAnonIdReadOnly(): Promise<string | null> {
+  const jar = await cookies();
+  return jar.get(COOKIE_NAME)?.value ?? null;
+}

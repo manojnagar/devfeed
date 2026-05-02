@@ -578,6 +578,11 @@ describe("Server Action · /admin", () => {
         paywallProvider: "unknown",
         thumbnailUrl: null,
         rawContentHash: "h-cascade-1",
+        bodyHtml: null,
+        bodySource: null,
+        bodyExtractedAt: null,
+        bodyFailedAt: null,
+        bodyFailedReason: null,
         createdAt: new Date().toISOString(),
       },
     ]);

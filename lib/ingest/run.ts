@@ -19,6 +19,7 @@ import { autoTag } from "./auto-tag";
 import { detectAccess } from "./detect-access";
 import { parseFeed, type ParsedFeedItem } from "./parse-feed";
 import { safeFetch, UnsafeUrlError } from "./safe-fetch";
+import { sanitizePostBody } from "./sanitize-body";
 import type { Post, Publisher, Tag } from "../types";
 
 export interface IngestRunResult {
@@ -27,12 +28,16 @@ export interface IngestRunResult {
   sourcesProcessed: number;
   sourcesFailed: number;
   postsInserted: number;
+  /** Number of post rows whose body was populated from the feed. */
+  bodiesFromFeed: number;
   errors: Array<{ sourceId: string; message: string }>;
 }
 
 interface PreparedPost {
   post: Post;
   tagSlugs: string[];
+  /** Sanitized HTML body when the feed supplied `<content:encoded>`. */
+  feedBody: string | null;
 }
 
 /** Normalize a parsed feed item into a Post + tag list ready for insert. */
@@ -50,6 +55,7 @@ function prepareItem(
     bodyHints: item.summary ?? "",
   });
   const tags = autoTag({ title: item.title, summary: item.summary });
+  const feedBody = sanitizePostBody(item.rawBody);
   const post: Post = {
     id: `post-${shortHash(`${publisher.id}:${canonical}`)}`,
     publisherId: publisher.id,
@@ -65,9 +71,14 @@ function prepareItem(
     paywallProvider: access.paywallProvider,
     thumbnailUrl: null,
     rawContentHash: shortHash(item.summary ?? item.link),
+    bodyHtml: null,
+    bodySource: null,
+    bodyExtractedAt: null,
+    bodyFailedAt: null,
+    bodyFailedReason: null,
     createdAt: nowIso(),
   };
-  return { post, tagSlugs: tags.slugs };
+  return { post, tagSlugs: tags.slugs, feedBody: feedBody.length > 0 ? feedBody : null };
 }
 
 function estimateReadingTime(summary: string): number | null {
@@ -88,6 +99,31 @@ async function attachTagsForPosts(
 }
 
 /**
+ * Persist any feed-supplied bodies onto the post rows.
+ *
+ * `insertMany` is no-op for duplicates (we dedupe by id), so we may end
+ * up here with prepared items whose row already exists. That's fine —
+ * `setBody` is idempotent and refreshing a stored body with a newer
+ * sanitized version of the same content is a feature, not a bug
+ * (publishers update old posts).
+ */
+async function applyFeedBodies(prepared: PreparedPost[]): Promise<number> {
+  const repo = getRepository();
+  let count = 0;
+  const now = nowIso();
+  for (const { post, feedBody } of prepared) {
+    if (!feedBody) continue;
+    await repo.posts.setBody(post.id, {
+      bodyHtml: feedBody,
+      bodySource: "feed",
+      bodyExtractedAt: now,
+    });
+    count += 1;
+  }
+  return count;
+}
+
+/**
  * Run a single ingest pass against all active sources.
  *
  * Concurrency is intentionally sequential here for clarity. The cron
@@ -103,6 +139,7 @@ export async function runIngest(): Promise<IngestRunResult> {
   let inserted = 0;
   let processed = 0;
   let failed = 0;
+  let bodiesFromFeed = 0;
 
   for (const source of sources) {
     const publisher = await repo.publishers.getById(source.publisherId);
@@ -117,6 +154,7 @@ export async function runIngest(): Promise<IngestRunResult> {
         const insertedCount = await repo.posts.insertMany(prepared.map((p) => p.post));
         inserted += insertedCount;
         await attachTagsForPosts(prepared, tagsBySlug);
+        bodiesFromFeed += await applyFeedBodies(prepared);
       }
       await repo.blogSources.recordSuccess(source.id, nowIso());
       processed += 1;
@@ -140,7 +178,7 @@ export async function runIngest(): Promise<IngestRunResult> {
     action: "ingest.run",
     targetType: "ingest",
     targetId: "global",
-    payload: { processed, failed, inserted, sourceCount: sources.length },
+    payload: { processed, failed, inserted, bodiesFromFeed, sourceCount: sources.length },
     occurredAt: nowIso(),
   });
 
@@ -150,6 +188,7 @@ export async function runIngest(): Promise<IngestRunResult> {
     sourcesProcessed: processed,
     sourcesFailed: failed,
     postsInserted: inserted,
+    bodiesFromFeed,
     errors,
   };
 }

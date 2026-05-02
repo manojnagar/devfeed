@@ -50,6 +50,9 @@ export interface BlogSource {
   createdAt: string;
 }
 
+/** Where a post body was sourced from. See migration 0006. */
+export type PostBodySource = "feed" | "extracted";
+
 /** A single article ingested from a blog source. */
 export interface Post {
   id: string;
@@ -66,6 +69,16 @@ export interface Post {
   paywallProvider: PaywallProvider;
   thumbnailUrl: string | null;
   rawContentHash: string | null;
+  /** Sanitized HTML body for the inline reader, or null until populated. */
+  bodyHtml: string | null;
+  /** Where `bodyHtml` came from: feed `<content:encoded>` or on-demand extraction. */
+  bodySource: PostBodySource | null;
+  /** When `bodyHtml` was last populated. */
+  bodyExtractedAt: string | null;
+  /** When extraction last failed (used for cool-off). */
+  bodyFailedAt: string | null;
+  /** Short reason for the last extraction failure. */
+  bodyFailedReason: string | null;
   createdAt: string;
 }
 

@@ -9,7 +9,12 @@
  */
 
 import type { Post, PostWithRelations, Publisher, Tag } from "../../../types";
-import type { ListPostsOptions, PostRepository } from "../../types";
+import type {
+  ListPostsOptions,
+  PostRepository,
+  SetPostBodyFailedInput,
+  SetPostBodyInput,
+} from "../../types";
 import { getMemoryStore } from "../store";
 
 const DEFAULT_PAGE_SIZE = 20;
@@ -152,6 +157,31 @@ export const memoryPostRepo: PostRepository = {
       .filter((p): p is Post => Boolean(p))
       .map((p) => hydrate(p, store.publishers, store.postTags, store.tags))
       .filter((p): p is PostWithRelations => p !== null);
+  },
+
+  async setBody(postId: string, input: SetPostBodyInput) {
+    const store = getMemoryStore();
+    const existing = store.posts.get(postId);
+    if (!existing) return;
+    store.posts.set(postId, {
+      ...existing,
+      bodyHtml: input.bodyHtml,
+      bodySource: input.bodySource,
+      bodyExtractedAt: input.bodyExtractedAt,
+      bodyFailedAt: null,
+      bodyFailedReason: null,
+    });
+  },
+
+  async setBodyFailed(postId: string, input: SetPostBodyFailedInput) {
+    const store = getMemoryStore();
+    const existing = store.posts.get(postId);
+    if (!existing) return;
+    store.posts.set(postId, {
+      ...existing,
+      bodyFailedAt: input.failedAt,
+      bodyFailedReason: input.reason,
+    });
   },
 };
 

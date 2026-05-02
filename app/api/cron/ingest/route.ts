@@ -22,6 +22,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     processed: result.sourcesProcessed,
     failed: result.sourcesFailed,
     inserted: result.postsInserted,
+    bodiesFromFeed: result.bodiesFromFeed,
   });
   return NextResponse.json(result);
 }
