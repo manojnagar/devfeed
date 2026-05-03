@@ -140,15 +140,24 @@ function buildPostsFor(
     const titleSuffix = i === 0 ? "" : ` (part ${i + 1})`;
     const title = `${template.title}${titleSuffix}`;
     const slugPart = `${publisher.slug}-${slugify(title)}-${i}`;
-    // Point the public canonical URL at the publisher's real blog
-    // homepage with a unique non-tracking query param. In production
-    // this is overwritten by whatever the RSS feed advertises; in
-    // dev it means "Read full article" actually opens a real page
-    // instead of a synthetic 404'd slug. The query param keeps the
-    // canonical URL unique so the dedup index still works (it isn't
-    // matched by `canonicalizeUrl`'s tracking-pattern allow-list).
-    const baseUrl = publisher.websiteUrl.replace(/\/$/, "");
-    const url = `${baseUrl}?devseed=${slugify(title)}-${i}`;
+    // Point the public canonical URL at a real, topical, public page
+    // when the template provides one (`template.link` — typically a
+    // Wikipedia article, vendor docs, or the SRE book chapter on the
+    // same subject). When the template does not curate a link we fall
+    // back to the publisher's blog index so the click at least lands
+    // on a live page instead of a synthetic 404'd article slug.
+    //
+    // Either way we tack on `?devseed=…` so the canonical URL stays
+    // unique per (publisher, template, i). The query param survives
+    // `canonicalizeUrl()` (it isn't on the tracking-pattern allow-list)
+    // and the well-known target hosts ignore unknown query params.
+    //
+    // In production with `STORAGE_ADAPTER=supabase` none of this runs
+    // — `canonicalUrl` is overwritten by whatever the RSS feed item
+    // advertises, which is the real per-article URL.
+    const targetBase = (template.link ?? publisher.websiteUrl).replace(/\/$/, "");
+    const sep = targetBase.includes("?") ? "&" : "?";
+    const url = `${targetBase}${sep}devseed=${slugify(title)}-${i}`;
     const sampleBody = template.body ? sanitizePostBody(template.body) : "";
     const hasBody = sampleBody.length > 0;
     const post: Post = {

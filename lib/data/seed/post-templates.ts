@@ -20,6 +20,19 @@ export interface PostTemplate {
    * the dev seed (where most synthetic URLs would otherwise 404).
    */
   body?: string;
+  /**
+   * Optional real, public, topical article URL. Used by the seed
+   * builder so that the "Read full article on …" CTA in preview /
+   * memory-mode actually lands on a substantive page on the topic
+   * instead of the publisher's blog homepage. The chosen URLs are
+   * intentionally hosted by stable third-parties (Wikipedia, vendor
+   * docs, the SRE book, …) rather than the labelled publisher's blog,
+   * because each template is rotated across many publishers in the
+   * seed and a per-publisher article match is not always available.
+   * In production with `STORAGE_ADAPTER=supabase` this field is never
+   * read — `canonicalUrl` is overwritten by the actual RSS feed item.
+   */
+  link?: string;
 }
 
 export const POST_TEMPLATES: PostTemplate[] = [
@@ -30,6 +43,7 @@ export const POST_TEMPLATES: PostTemplate[] = [
     tagSlugs: ["distributed-systems", "performance", "observability"],
     readingTimeMin: 12,
     accessLabel: "free",
+    link: "https://sre.google/sre-book/handling-overload/",
     body: `<p>Adaptive load shedding sounds straightforward on paper: when the system is healthy, accept everything; when it isn't, drop the fraction of traffic that lets every other request finish on time. In practice, the trick is picking the right signal and the right reaction curve so the system never oscillates between "everything is fine" and "drop half the traffic".</p>
 <h2>The signal: p99 latency, not queue depth</h2>
 <p>We started with queue depth as our shedding signal, the way most off-the-shelf rate limiters do. It worked under synthetic load and broke spectacularly under real load. The problem: queue depth is downstream of the bottleneck. By the time it climbs, the latency tail has already detached from the body of the histogram, and our SLOs are gone for the next five minutes.</p>
@@ -52,6 +66,7 @@ export const POST_TEMPLATES: PostTemplate[] = [
     tagSlugs: ["databases", "infrastructure"],
     readingTimeMin: 18,
     accessLabel: "free",
+    link: "https://www.postgresql.org/docs/current/logical-replication.html",
   },
   {
     title: "What we learned shipping React Server Components in production",
@@ -60,6 +75,7 @@ export const POST_TEMPLATES: PostTemplate[] = [
     tagSlugs: ["react", "frontend", "performance"],
     readingTimeMin: 9,
     accessLabel: "free",
+    link: "https://react.dev/reference/rsc/server-components",
   },
   {
     title: "Designing a vector index for 50 million embeddings on a single box",
@@ -68,6 +84,7 @@ export const POST_TEMPLATES: PostTemplate[] = [
     tagSlugs: ["ml-ai", "performance", "databases"],
     readingTimeMin: 14,
     accessLabel: "paid",
+    link: "https://en.wikipedia.org/wiki/Hierarchical_navigable_small_world",
   },
   {
     title: "How our incident-review process stopped feeling like a punishment",
@@ -76,6 +93,7 @@ export const POST_TEMPLATES: PostTemplate[] = [
     tagSlugs: ["incident-response", "engineering-culture"],
     readingTimeMin: 7,
     accessLabel: "free",
+    link: "https://sre.google/sre-book/postmortem-culture/",
   },
   {
     title: "Building a typed RPC layer on top of HTTP/3 and QUIC",
@@ -84,6 +102,7 @@ export const POST_TEMPLATES: PostTemplate[] = [
     tagSlugs: ["networking", "architecture", "performance"],
     readingTimeMin: 16,
     accessLabel: "free",
+    link: "https://en.wikipedia.org/wiki/QUIC",
   },
   {
     title: "Tracking flakiness across 80,000 e2e tests",
@@ -92,6 +111,7 @@ export const POST_TEMPLATES: PostTemplate[] = [
     tagSlugs: ["testing", "devex", "observability"],
     readingTimeMin: 8,
     accessLabel: "free",
+    link: "https://martinfowler.com/articles/nonDeterminism.html",
   },
   {
     title: "Hardening our build pipeline against malicious dependencies",
@@ -100,6 +120,7 @@ export const POST_TEMPLATES: PostTemplate[] = [
     tagSlugs: ["security", "devex"],
     readingTimeMin: 11,
     accessLabel: "free",
+    link: "https://slsa.dev/spec/v1.0/",
   },
   {
     title: "From monolith to two services: an honest retrospective",
@@ -108,6 +129,7 @@ export const POST_TEMPLATES: PostTemplate[] = [
     tagSlugs: ["architecture", "engineering-culture"],
     readingTimeMin: 13,
     accessLabel: "members_only",
+    link: "https://martinfowler.com/articles/microservices.html",
   },
   {
     title: "Why we picked SQLite as our primary store for an internal tool",
@@ -116,6 +138,7 @@ export const POST_TEMPLATES: PostTemplate[] = [
     tagSlugs: ["databases", "platform-engineering"],
     readingTimeMin: 6,
     accessLabel: "free",
+    link: "https://www.sqlite.org/whentouse.html",
   },
   {
     title: "A month of fuzzing: ten bugs, no production incidents",
@@ -124,6 +147,7 @@ export const POST_TEMPLATES: PostTemplate[] = [
     tagSlugs: ["security", "testing"],
     readingTimeMin: 9,
     accessLabel: "free",
+    link: "https://en.wikipedia.org/wiki/Fuzzing",
   },
   {
     title: "Replacing a hand-tuned cache with a learned policy",
@@ -132,5 +156,6 @@ export const POST_TEMPLATES: PostTemplate[] = [
     tagSlugs: ["performance", "ml-ai", "redis"],
     readingTimeMin: 10,
     accessLabel: "paid",
+    link: "https://en.wikipedia.org/wiki/Cache_replacement_policies",
   },
 ];
