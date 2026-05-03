@@ -11,6 +11,7 @@
 
 import { Avatar, Pill } from "@/components/ui";
 import { Github, Twitter, Globe, BadgeCheck } from "lucide-react";
+import { resolvePublisherLogoCandidates } from "@/lib/publisher-logo";
 import type { Publisher } from "@/lib/types";
 
 export interface PublisherHeaderProps {
@@ -66,7 +67,7 @@ export function PublisherHeader({ publisher, followAction, postCount }: Publishe
       <div className="flex items-start gap-4 min-w-0">
         <Avatar
           name={publisher.name}
-          src={publisher.logoUrl}
+          src={resolvePublisherLogoCandidates(publisher)}
           size={publisher.type === "person" ? 80 : 64}
           rounded={publisher.type === "person" ? "full" : "md"}
         />

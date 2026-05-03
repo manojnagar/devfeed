@@ -5,6 +5,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/auth";
 import { getRepository } from "@/lib/data";
@@ -28,35 +29,73 @@ import { genId, slugify } from "@/lib/ids";
 import { nowIso } from "@/lib/dates";
 import { log } from "@/lib/log";
 
+/**
+ * Empty strings come through as `""` in `FormData` even when the user
+ * leaves the field blank. We normalize them to `null` BEFORE zod parses
+ * so the optional URL fields don't trip the `z.string().url()` check.
+ */
+function emptyToNull(value: FormDataEntryValue | null): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed === "" ? null : trimmed;
+}
+
 const PublisherUpsertSchema = z.object({
   id: z.string().optional(),
   type: PublisherTypeEnum,
   name: z.string().trim().min(2).max(120),
   slug: SlugSchema.optional(),
   websiteUrl: UrlSchema,
-  description: z.string().trim().max(500).optional().nullable(),
+  logoUrl: UrlSchema.nullable().optional(),
+  description: z.string().trim().max(500).nullable().optional(),
   defaultAccessLabel: AccessLabelEnum.default("free"),
-  twitterHandle: z.string().trim().max(50).optional().nullable(),
-  githubHandle: z.string().trim().max(50).optional().nullable(),
+  twitterHandle: z.string().trim().max(50).nullable().optional(),
+  githubHandle: z.string().trim().max(50).nullable().optional(),
 });
 
-/** Create or update a publisher (admin only). */
+/**
+ * Create or update a publisher (admin only).
+ *
+ * Update path: when an `id` is present in the form payload we look up
+ * the existing record and preserve fields that are NOT exposed in the
+ * admin form (`isActive`, `isVerified`, `homeCountry`,
+ * `defaultPaywallProvider`, `createdAt`). Without this preservation
+ * every save would silently re-activate a hidden publisher and reset
+ * its created-at timestamp. The slug is also preserved across edits
+ * (passed back as a hidden input by the edit form) — changing a slug
+ * breaks bookmarks and inbound links, so renaming a publisher requires
+ * delete + recreate.
+ */
 export async function upsertPublisherAction(formData: FormData): Promise<void> {
   const session = await requireAdmin();
   const parsed = PublisherUpsertSchema.parse({
-    id: formData.get("id") || undefined,
+    id: emptyToNull(formData.get("id")) ?? undefined,
     type: formData.get("type"),
     name: formData.get("name"),
-    slug: (formData.get("slug") as string) || undefined,
+    slug: emptyToNull(formData.get("slug")) ?? undefined,
     websiteUrl: formData.get("websiteUrl"),
-    description: formData.get("description") || null,
+    logoUrl: emptyToNull(formData.get("logoUrl")),
+    description: emptyToNull(formData.get("description")),
     defaultAccessLabel: (formData.get("defaultAccessLabel") as string) || "free",
-    twitterHandle: (formData.get("twitterHandle") as string) || null,
-    githubHandle: (formData.get("githubHandle") as string) || null,
+    twitterHandle: emptyToNull(formData.get("twitterHandle")),
+    githubHandle: emptyToNull(formData.get("githubHandle")),
   });
+
   const repo = getRepository();
+  const isUpdate = Boolean(parsed.id);
+  const existing = isUpdate ? await repo.publishers.getById(parsed.id as string) : null;
+  if (isUpdate && !existing) {
+    log.warn("admin_publisher_update_missing", {
+      actor: session.user.userId,
+      id: parsed.id,
+    });
+    throw new Error("Publisher not found.");
+  }
+
   const id = parsed.id ?? genId();
-  const slug = parsed.slug ?? slugify(parsed.name);
+  const slug = parsed.slug ?? existing?.slug ?? slugify(parsed.name);
+  const now = nowIso();
+
   await repo.publishers.upsert({
     id,
     type: parsed.type,
@@ -64,29 +103,108 @@ export async function upsertPublisherAction(formData: FormData): Promise<void> {
     name: parsed.name,
     websiteUrl: parsed.websiteUrl,
     description: parsed.description ?? null,
-    logoUrl: null,
+    logoUrl: parsed.logoUrl ?? null,
     twitterHandle: parsed.twitterHandle ?? null,
     githubHandle: parsed.githubHandle ?? null,
-    homeCountry: null,
+    homeCountry: existing?.homeCountry ?? null,
     defaultAccessLabel: parsed.defaultAccessLabel,
-    defaultPaywallProvider: "unknown",
-    isVerified: false,
-    isActive: true,
-    createdAt: nowIso(),
-    updatedAt: nowIso(),
+    defaultPaywallProvider: existing?.defaultPaywallProvider ?? "unknown",
+    isVerified: existing?.isVerified ?? false,
+    isActive: existing?.isActive ?? true,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
   });
   await repo.audit.insert({
     id: genId(),
     actorUserId: session.user.userId,
-    action: parsed.id ? "publisher.update" : "publisher.create",
+    action: isUpdate ? "publisher.update" : "publisher.create",
     targetType: "publisher",
     targetId: id,
     payload: { name: parsed.name, slug, type: parsed.type },
+    occurredAt: now,
+  });
+  log.info("admin_publisher_upserted", {
+    id,
+    slug,
+    update: isUpdate,
+    actor: session.user.userId,
+  });
+  revalidatePath("/admin/publishers");
+  revalidatePath(`/admin/publishers/${id}/edit`);
+  revalidatePath("/publishers");
+  revalidatePath(`/publishers/${slug}`);
+  redirect("/admin/publishers");
+}
+
+const DeletePublisherSchema = z.object({
+  id: z.string().trim().min(1).max(200),
+  confirm: z.literal("DELETE"),
+});
+
+/**
+ * Hard-delete a publisher.
+ *
+ * CAUTION: cascades to every post, post_tag, blog_source,
+ * follow_publisher, bookmark, and read_event row that references this
+ * publisher (FK `on delete cascade` in the SQL schema; replicated by
+ * the in-memory adapter for parity). The admin UI surfaces a native
+ * `confirm()` dialog before invoking this; we still re-check here so
+ * a forged or stale form submission can't bypass the warning.
+ *
+ * Defense in depth:
+ *   1. `requireAdmin()` — caller must be an authenticated, non-banned admin.
+ *   2. zod schema requires `confirm === "DELETE"`.
+ *   3. Idempotent — re-deletes are no-ops with an audit-log warning.
+ */
+export async function deletePublisherAction(formData: FormData): Promise<void> {
+  const session = await requireAdmin();
+  const parsed = DeletePublisherSchema.safeParse({
+    id: formData.get("id"),
+    confirm: formData.get("confirm"),
+  });
+  if (!parsed.success) {
+    log.warn("admin_delete_publisher_invalid", {
+      actor: session.user.userId,
+      issues: parsed.error.issues.map((i) => i.message),
+    });
+    throw new Error("Delete was not confirmed.");
+  }
+
+  const repo = getRepository();
+  const existing = await repo.publishers.getById(parsed.data.id);
+  if (!existing) {
+    log.warn("admin_delete_publisher_missing", {
+      actor: session.user.userId,
+      id: parsed.data.id,
+    });
+    revalidatePath("/admin/publishers");
+    redirect("/admin/publishers");
+  }
+
+  await repo.publishers.delete(parsed.data.id);
+  await repo.audit.insert({
+    id: genId(),
+    actorUserId: session.user.userId,
+    action: "publisher.delete",
+    targetType: "publisher",
+    targetId: parsed.data.id,
+    payload: {
+      name: existing.name,
+      slug: existing.slug,
+      type: existing.type,
+      websiteUrl: existing.websiteUrl,
+    },
     occurredAt: nowIso(),
   });
-  log.info("admin_publisher_upserted", { id, slug, actor: session.user.userId });
+  log.info("admin_publisher_deleted", {
+    actor: session.user.userId,
+    id: parsed.data.id,
+    slug: existing.slug,
+  });
   revalidatePath("/admin/publishers");
   revalidatePath("/publishers");
+  revalidatePath(`/publishers/${existing.slug}`);
+  redirect("/admin/publishers");
 }
 
 /** Toggle a publisher's active state. */

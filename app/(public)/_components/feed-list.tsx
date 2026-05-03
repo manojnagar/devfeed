@@ -20,7 +20,7 @@ import { PostCard } from "@/components/post/post-card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/cn";
 import type { Page, PostWithRelations } from "@/lib/types";
-import type { PaginationLinks } from "../_lib/pagination";
+import { visiblePageNumbers, type PaginationLinks } from "../_lib/pagination";
 
 export interface FeedListProps {
   page: Page<PostWithRelations>;
@@ -49,9 +49,13 @@ export function FeedList({
       />
     );
   }
+  // `auto-rows-fr` is what equalizes card heights inside a row in the
+  // 2-column grid: combined with `h-full flex flex-col` on the card
+  // and `flex-1` on the body, every card in a row stretches to match
+  // the tallest sibling so footers always line up.
   const gridClass = cn(
     "gap-3",
-    columns === 2 ? "grid grid-cols-1 lg:grid-cols-2" : "flex flex-col",
+    columns === 2 ? "grid grid-cols-1 auto-rows-fr lg:grid-cols-2" : "flex flex-col",
   );
   return (
     <div className="space-y-4">
@@ -60,33 +64,81 @@ export function FeedList({
           <PostCard key={post.id} post={post} />
         ))}
       </div>
-      {(pagination.prev || pagination.next) && (
-        <nav className="flex items-center justify-between pt-4 text-sm" aria-label="Pagination">
-          <div>
+      {pagination.totalPages > 1 ? (
+        <nav
+          className="flex flex-wrap items-center justify-between gap-3 pt-4 text-sm"
+          aria-label="Pagination"
+        >
+          <div className="min-w-0">
             {pagination.prev ? (
-              <Link
-                href={pagination.prev}
-                className="px-3 py-1.5 rounded-md border border-[rgb(var(--color-line-strong))] hover:bg-[rgb(var(--color-surface))]"
-              >
+              <Link href={pagination.prev} className={navButtonClass}>
                 ← Newer
               </Link>
-            ) : null}
+            ) : (
+              <span className={cn(navButtonClass, "cursor-not-allowed opacity-40")} aria-disabled>
+                ← Newer
+              </span>
+            )}
           </div>
-          <p className="text-[rgb(var(--color-fg-muted))]">
-            Page {page.page} of {pagination.totalPages}
-          </p>
-          <div>
+          {/* Jump-to-page list. Shows up to 7 entries with `…` gaps so
+              users can land on page 1 / N or anything within ±1 of the
+              current page in a single click. */}
+          <ol className="flex flex-wrap items-center justify-center gap-1">
+            {visiblePageNumbers(pagination.currentPage, pagination.totalPages).map((entry, idx) =>
+              entry === "…" ? (
+                <li
+                  key={`gap-${idx}`}
+                  aria-hidden="true"
+                  className="px-2 text-[rgb(var(--color-fg-muted))]"
+                >
+                  …
+                </li>
+              ) : entry === pagination.currentPage ? (
+                <li key={entry}>
+                  <span
+                    aria-current="page"
+                    className={cn(
+                      pageButtonClass,
+                      "border-[rgb(var(--color-accent))] bg-[rgb(var(--color-accent))]/10 font-semibold text-[rgb(var(--color-accent))]",
+                    )}
+                  >
+                    {entry}
+                  </span>
+                </li>
+              ) : (
+                <li key={entry}>
+                  <Link
+                    href={pagination.pageHref(entry)}
+                    aria-label={`Go to page ${entry}`}
+                    className={pageButtonClass}
+                  >
+                    {entry}
+                  </Link>
+                </li>
+              ),
+            )}
+          </ol>
+          <div className="min-w-0">
             {pagination.next ? (
-              <Link
-                href={pagination.next}
-                className="px-3 py-1.5 rounded-md border border-[rgb(var(--color-line-strong))] hover:bg-[rgb(var(--color-surface))]"
-              >
+              <Link href={pagination.next} className={navButtonClass}>
                 Older →
               </Link>
-            ) : null}
+            ) : (
+              <span className={cn(navButtonClass, "cursor-not-allowed opacity-40")} aria-disabled>
+                Older →
+              </span>
+            )}
           </div>
         </nav>
-      )}
+      ) : null}
     </div>
   );
 }
+
+/** Pill-style button used for Newer/Older. */
+const navButtonClass =
+  "rounded-md border border-[rgb(var(--color-line-strong))] px-3 py-1.5 hover:bg-[rgb(var(--color-surface))]";
+
+/** Square-ish button used for individual page numbers. */
+const pageButtonClass =
+  "inline-flex min-w-9 items-center justify-center rounded-md border border-[rgb(var(--color-line-strong))] px-2 py-1.5 text-center hover:bg-[rgb(var(--color-surface))]";

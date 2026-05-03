@@ -3,14 +3,30 @@
  *
  * Renders all filters as accessible HTML controls inside a single GET
  * form. The form's `action` is the current path so URL search params
- * are the source of truth (no client-side state). This works without
- * JavaScript and means every filtered view is shareable / bookmarkable.
+ * remain the source of truth (no local state) — every filtered view
+ * stays shareable and bookmarkable.
+ *
+ * Filters auto-apply: any checkbox / radio change triggers a soft
+ * client-side navigation via `router.push`, wrapped in `useTransition`
+ * so React keeps the prior UI visible until the new feed is ready.
+ * The form still degrades to a plain GET submit if JS is disabled
+ * (the hidden submit button is what gives screen-reader users the
+ * "submit on Enter" affordance — visually we no longer need it).
+ *
+ * The `key={formKey}` on the form forces a remount whenever the URL
+ * changes (Back/Forward, Reset, deep link), so `defaultChecked` is
+ * always re-evaluated from the new `selected` props.
  */
 
+"use client";
+
+import { useRef, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Pill } from "@/components/ui/pill";
 import { Card, CardBody, CardTitle } from "@/components/ui/card";
 import { buttonClassName } from "@/components/ui/button";
+import { cn } from "@/lib/cn";
 import type { Publisher, Tag } from "@/lib/types";
 
 export interface FilterSidebarProps {
@@ -53,11 +69,60 @@ export function FilterSidebar({
   selected,
   basePath,
 }: FilterSidebarProps) {
+  const router = useRouter();
+  const formRef = useRef<HTMLFormElement>(null);
+  const [isPending, startTransition] = useTransition();
+
+  // Forces a form remount whenever the URL changes (Back/Forward, Reset
+  // link click, external deep link) so each input's `defaultChecked` is
+  // re-evaluated from the new `selected` prop. Without this, after
+  // Back/Forward the URL would say one thing and the checkboxes another.
+  const formKey = [
+    selected.type.join(","),
+    selected.publisher.join(","),
+    selected.tag.join(","),
+    selected.access.join(","),
+    selected.from ?? "",
+    selected.q ?? "",
+  ].join("|");
+
+  function applyFilters(): void {
+    const form = formRef.current;
+    if (!form) return;
+    const params = new URLSearchParams();
+    for (const [key, value] of new FormData(form).entries()) {
+      const v = String(value);
+      // Skip the empty-string radio (e.g. "All time") so we don't
+      // pollute the URL with `?from=` and confuse downstream parsers.
+      if (v === "") continue;
+      params.append(key, v);
+    }
+    const query = params.toString();
+    const href = query ? `${basePath}?${query}` : basePath;
+    startTransition(() => {
+      router.push(href, { scroll: false });
+    });
+  }
+
   return (
     <form
+      key={formKey}
+      ref={formRef}
       action={basePath}
       method="get"
-      className="space-y-4 sticky top-24 max-h-[calc(100vh-7rem)] overflow-auto pr-2"
+      onChange={applyFilters}
+      onSubmit={(event) => {
+        // Intercept the native submit so we use a soft client-side
+        // navigation instead of a full page reload. Without JS this
+        // handler never runs and the browser does the GET submit.
+        event.preventDefault();
+        applyFilters();
+      }}
+      aria-busy={isPending}
+      className={cn(
+        "sticky top-24 max-h-[calc(100vh-7rem)] space-y-4 overflow-auto pr-2 transition-opacity",
+        isPending && "opacity-60",
+      )}
     >
       {selected.q ? <input type="hidden" name="q" value={selected.q} /> : null}
       <Card>
@@ -187,10 +252,13 @@ export function FilterSidebar({
         </CardBody>
       </Card>
 
+      {/* Visually hidden submit so screen readers + no-JS clients can
+          still trigger the GET form via Enter. With JS enabled, filters
+          auto-apply on input change and this is never clicked. */}
+      <button type="submit" className="sr-only" tabIndex={-1} aria-hidden="true">
+        Apply filters
+      </button>
       <div className="flex gap-2">
-        <button type="submit" className={buttonClassName({ className: "flex-1" })}>
-          Apply
-        </button>
         <Link
           href={basePath}
           className={buttonClassName({ variant: "secondary", className: "flex-1" })}

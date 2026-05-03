@@ -96,6 +96,7 @@ import { submitSuggestionAction } from "@/app/(public)/suggest/actions";
 import {
   addSourceAction,
   decideSuggestionAction,
+  deletePublisherAction,
   deleteSourceAction,
   setSourceActiveAction,
   setUserBannedAction,
@@ -340,7 +341,7 @@ describe("Server Action · /suggest", () => {
 });
 
 describe("Server Action · /admin", () => {
-  it("upsertPublisherAction creates a publisher + writes audit log", async () => {
+  it("upsertPublisherAction creates a publisher + writes audit log + redirects", async () => {
     setSession("demo-admin-user");
     const repo = getRepository();
 
@@ -348,19 +349,78 @@ describe("Server Action · /admin", () => {
     fd.set("type", "company");
     fd.set("name", "New Brand Engineering");
     fd.set("websiteUrl", "https://new-brand.dev");
+    fd.set("logoUrl", "https://new-brand.dev/logo.png");
     fd.set("description", "Fresh blog");
     fd.set("defaultAccessLabel", "free");
 
-    await upsertPublisherAction(fd);
+    const url = await expectRedirect(() => upsertPublisherAction(fd));
+    expect(url).toBe("/admin/publishers");
 
     const list = await repo.publishers.list({ isActive: true });
     const created = list.find((p) => p.name === "New Brand Engineering");
     expect(created).toBeTruthy();
     expect(created?.slug).toBe("new-brand-engineering");
+    expect(created?.logoUrl).toBe("https://new-brand.dev/logo.png");
 
     const audit = await repo.audit.list(5);
     expect(audit[0].action).toBe("publisher.create");
     expect(revalidateCalls).toEqual(expect.arrayContaining(["/admin/publishers", "/publishers"]));
+  });
+
+  it("upsertPublisherAction (edit) preserves isActive + createdAt + slug", async () => {
+    setSession("demo-admin-user");
+    const repo = getRepository();
+    const target = (await repo.publishers.list())[0];
+    // Hide the publisher first so we can verify the edit path does not
+    // silently re-activate it. We also stash the original createdAt to
+    // confirm the timestamp survives.
+    await repo.publishers.setActive(target.id, false);
+    const before = await repo.publishers.getById(target.id);
+    expect(before?.isActive).toBe(false);
+
+    const fd = new FormData();
+    fd.set("id", target.id);
+    fd.set("slug", target.slug);
+    fd.set("type", target.type);
+    fd.set("name", `${target.name} (renamed)`);
+    fd.set("websiteUrl", target.websiteUrl);
+    fd.set("logoUrl", "https://cdn.example.com/new-logo.png");
+    fd.set("description", "Updated description");
+    fd.set("defaultAccessLabel", target.defaultAccessLabel);
+
+    await expectRedirect(() => upsertPublisherAction(fd));
+
+    const after = await repo.publishers.getById(target.id);
+    expect(after?.name).toBe(`${target.name} (renamed)`);
+    expect(after?.logoUrl).toBe("https://cdn.example.com/new-logo.png");
+    expect(after?.slug).toBe(target.slug);
+    expect(after?.isActive).toBe(false);
+    expect(after?.createdAt).toBe(before?.createdAt);
+
+    const audit = await repo.audit.list(5);
+    expect(audit[0].action).toBe("publisher.update");
+  });
+
+  it("upsertPublisherAction normalizes blank optional URLs to null", async () => {
+    setSession("demo-admin-user");
+    const repo = getRepository();
+
+    const fd = new FormData();
+    fd.set("type", "person");
+    fd.set("name", "Solo Author");
+    fd.set("websiteUrl", "https://solo.example");
+    fd.set("logoUrl", "   "); // whitespace-only must not fail URL validation
+    fd.set("description", "");
+    fd.set("twitterHandle", "");
+    fd.set("defaultAccessLabel", "free");
+
+    await expectRedirect(() => upsertPublisherAction(fd));
+
+    const created = (await repo.publishers.list()).find((p) => p.name === "Solo Author");
+    expect(created).toBeTruthy();
+    expect(created?.logoUrl).toBeNull();
+    expect(created?.description).toBeNull();
+    expect(created?.twitterHandle).toBeNull();
   });
 
   it("togglePublisherActiveAction deactivates a publisher", async () => {
@@ -377,6 +437,65 @@ describe("Server Action · /admin", () => {
     expect(stillActive).not.toContain(target.id);
     const audit = await repo.audit.list(5);
     expect(audit[0].action).toBe("publisher.deactivate");
+  });
+
+  it("deletePublisherAction removes the publisher and cascades to posts/sources/follows", async () => {
+    setSession("demo-admin-user");
+    const repo = getRepository();
+    const target = (await repo.publishers.list())[0];
+
+    // Bind a follow + a bookmark so we can assert the cascade clears them.
+    await repo.follows.togglePublisher("demo-user", target.id);
+    const targetPost = (await repo.posts.list({ publisher: [target.slug], pageSize: 1 })).items[0];
+    expect(targetPost).toBeTruthy();
+    await repo.bookmarks.toggle("demo-user", targetPost.id);
+
+    const beforePostCount = (await repo.posts.list({ publisher: [target.slug], pageSize: 200 }))
+      .items.length;
+    expect(beforePostCount).toBeGreaterThan(0);
+    const beforeSources = await repo.blogSources.listByPublisher(target.id);
+    expect(beforeSources.length).toBeGreaterThan(0);
+
+    const fd = new FormData();
+    fd.set("id", target.id);
+    fd.set("confirm", "DELETE");
+    const url = await expectRedirect(() => deletePublisherAction(fd));
+    expect(url).toBe("/admin/publishers");
+
+    expect(await repo.publishers.getById(target.id)).toBeNull();
+    const remainingPosts = await repo.posts.list({ publisher: [target.slug], pageSize: 200 });
+    expect(remainingPosts.items).toEqual([]);
+    expect(await repo.blogSources.listByPublisher(target.id)).toEqual([]);
+    const followed = await repo.follows.listFollowedPublishers("demo-user");
+    expect(followed.find((p) => p.id === target.id)).toBeUndefined();
+    const bookmarks = await repo.bookmarks.raw("demo-user");
+    expect(bookmarks.find((b) => b.postId === targetPost.id)).toBeUndefined();
+
+    const audit = await repo.audit.list(5);
+    expect(audit[0].action).toBe("publisher.delete");
+    expect(audit[0].targetId).toBe(target.id);
+  });
+
+  it("deletePublisherAction rejects submissions without the typed DELETE confirmation", async () => {
+    setSession("demo-admin-user");
+    const repo = getRepository();
+    const target = (await repo.publishers.list())[0];
+
+    const fd = new FormData();
+    fd.set("id", target.id);
+    fd.set("confirm", "delete");
+    await expect(deletePublisherAction(fd)).rejects.toThrow(/not confirmed/i);
+
+    expect(await repo.publishers.getById(target.id)).toBeTruthy();
+  });
+
+  it("deletePublisherAction is idempotent for already-removed ids", async () => {
+    setSession("demo-admin-user");
+    const fd = new FormData();
+    fd.set("id", "pub-does-not-exist");
+    fd.set("confirm", "DELETE");
+    const url = await expectRedirect(() => deletePublisherAction(fd));
+    expect(url).toBe("/admin/publishers");
   });
 
   it("addSourceAction attaches a feed source to a publisher", async () => {

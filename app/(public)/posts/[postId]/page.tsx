@@ -39,6 +39,7 @@ import { consumeSlidingLimit } from "@/lib/rate-limit";
 import { getAnonIdReadOnly } from "@/lib/anon-id";
 import { log } from "@/lib/log";
 import { nowIso } from "@/lib/dates";
+import { resolvePublisherLogoCandidates } from "@/lib/publisher-logo";
 import type { PostWithRelations } from "@/lib/types";
 
 interface Props {
@@ -80,7 +81,11 @@ export default async function PostPreview({ params }: Props) {
       <article className="mt-6">
         <header className="mb-6">
           <div className="flex items-center gap-3 mb-4">
-            <Avatar name={post.publisher.name} src={post.publisher.logoUrl} size={48} />
+            <Avatar
+              name={post.publisher.name}
+              src={resolvePublisherLogoCandidates(post.publisher)}
+              size={48}
+            />
             <div className="min-w-0">
               <Link
                 href={`/publishers/${post.publisher.slug}`}

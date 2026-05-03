@@ -10,6 +10,7 @@ import { Avatar } from "@/components/ui/avatar";
 import { Pill } from "@/components/ui/pill";
 import { EmptyState } from "@/components/ui/empty-state";
 import { buttonClassName } from "@/components/ui/button";
+import { resolvePublisherLogoCandidates } from "@/lib/publisher-logo";
 import Link from "next/link";
 import { togglePublisherFollowAction } from "../actions";
 
@@ -44,7 +45,7 @@ export default async function FollowedPublishersPage() {
             <li key={p.id}>
               <Card>
                 <CardBody className="flex items-center gap-3">
-                  <Avatar src={p.logoUrl} name={p.name} size={36} />
+                  <Avatar src={resolvePublisherLogoCandidates(p)} name={p.name} size={36} />
                   <div className="flex-1 min-w-0">
                     <Link
                       href={`/publishers/${p.slug}`}
